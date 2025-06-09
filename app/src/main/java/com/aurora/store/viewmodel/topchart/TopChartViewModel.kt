@@ -27,6 +27,7 @@ import com.aurora.gplayapi.helpers.contracts.TopChartsContract
 import com.aurora.gplayapi.helpers.web.WebTopChartsHelper
 import com.aurora.store.TopChartStash
 import com.aurora.store.data.model.ViewState
+import com.aurora.store.data.providers.WhitelistFilter
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -35,7 +36,8 @@ import javax.inject.Inject
 
 @HiltViewModel
 class TopChartViewModel @Inject constructor(
-    private val webTopChartsHelper: WebTopChartsHelper
+    private val webTopChartsHelper: WebTopChartsHelper,
+    private val whitelistFilter: WhitelistFilter
 ): ViewModel() {
 
     private var stash: TopChartStash = mutableMapOf()
@@ -53,7 +55,10 @@ class TopChartViewModel @Inject constructor(
 
             try {
                 val cluster = topChartsContract.getCluster(type.value, chart.value)
-                updateCluster(type, chart, cluster)
+                val filteredCluster = cluster.copy(
+                    clusterAppList = whitelistFilter.filterApps(cluster.clusterAppList)
+                )
+                updateCluster(type, chart, filteredCluster)
                 liveData.postValue(ViewState.Success(stash))
             } catch (_: Exception) {
             }
@@ -69,8 +74,12 @@ class TopChartViewModel @Inject constructor(
                         val newCluster = topChartsContract.getNextStreamCluster(
                             target.clusterNextPageUrl
                         )
+                        
+                        val filteredCluster = newCluster.copy(
+                            clusterAppList = whitelistFilter.filterApps(newCluster.clusterAppList)
+                        )
 
-                        updateCluster(type, chart, newCluster)
+                        updateCluster(type, chart, filteredCluster)
 
                         liveData.postValue(ViewState.Success(stash))
                     }

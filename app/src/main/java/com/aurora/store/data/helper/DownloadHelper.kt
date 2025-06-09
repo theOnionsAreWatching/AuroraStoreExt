@@ -10,6 +10,7 @@ import androidx.work.WorkManager
 import com.aurora.gplayapi.data.models.App
 import com.aurora.store.AuroraApp
 import com.aurora.store.data.model.DownloadStatus
+import com.aurora.store.data.providers.WhitelistFilter
 import com.aurora.store.data.room.download.Download
 import com.aurora.store.data.room.download.DownloadDao
 import com.aurora.store.data.room.update.Update
@@ -30,7 +31,8 @@ import javax.inject.Inject
  */
 class DownloadHelper @Inject constructor(
     @ApplicationContext private val context: Context,
-    private val downloadDao: DownloadDao
+    private val downloadDao: DownloadDao,
+    private val whitelistFilter: WhitelistFilter
 ) {
 
     companion object {
@@ -79,6 +81,10 @@ class DownloadHelper @Inject constructor(
      * @param app [App] to download
      */
     suspend fun enqueueApp(app: App) {
+        if (!whitelistFilter.isWhitelisted(app.packageName)) {
+            Log.w(TAG, "Blocked download attempt for non-whitelisted app: ${app.packageName}")
+            return
+        }
         downloadDao.insert(Download.fromApp(app))
     }
 
@@ -87,6 +93,10 @@ class DownloadHelper @Inject constructor(
      * @param update [Update] to download
      */
     suspend fun enqueueUpdate(update: Update) {
+        if (!whitelistFilter.isWhitelisted(update.packageName)) {
+            Log.w(TAG, "Blocked update download for non-whitelisted app: ${update.packageName}")
+            return
+        }
         downloadDao.insert(Download.fromUpdate(update))
     }
 

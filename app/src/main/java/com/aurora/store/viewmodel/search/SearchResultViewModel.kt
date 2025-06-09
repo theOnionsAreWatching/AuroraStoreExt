@@ -31,6 +31,7 @@ import com.aurora.gplayapi.helpers.web.WebSearchHelper
 import com.aurora.store.AppStreamStash
 import com.aurora.store.data.model.ViewState
 import com.aurora.store.data.providers.AuthProvider
+import com.aurora.store.data.providers.WhitelistFilter
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -42,7 +43,8 @@ import javax.inject.Inject
 class SearchResultViewModel @Inject constructor(
     private val authProvider: AuthProvider,
     private val searchHelper: SearchHelper,
-    private val webSearchHelper: WebSearchHelper
+    private val webSearchHelper: WebSearchHelper,
+    private val whitelistFilter: WhitelistFilter
 ) : ViewModel() {
 
     private val TAG = SearchResultViewModel::class.java.simpleName
@@ -74,8 +76,13 @@ class SearchResultViewModel @Inject constructor(
                     // Fetch new stream bundle
                     val newBundle = contract.searchResults(query)
 
+                    // Filter clusters to only include whitelisted apps
+                    val filteredClusters = newBundle.streamClusters.mapValues { (_, cluster) ->
+                        cluster.copy(clusterAppList = whitelistFilter.filterApps(cluster.clusterAppList))
+                    }
+
                     bundle = bundle.copy(
-                        streamClusters = newBundle.streamClusters,
+                        streamClusters = filteredClusters,
                         streamNextPageUrl = newBundle.streamNextPageUrl
                     )
 
@@ -101,9 +108,14 @@ class SearchResultViewModel @Inject constructor(
                             bundle.streamNextPageUrl
                         )
 
+                        // Filter new clusters to only include whitelisted apps
+                        val filteredNewClusters = newBundle.streamClusters.mapValues { (_, cluster) ->
+                            cluster.copy(clusterAppList = whitelistFilter.filterApps(cluster.clusterAppList))
+                        }
+
                         // Update old bundle
                         bundle = bundle.copy(
-                            streamClusters = bundle.streamClusters + newBundle.streamClusters,
+                            streamClusters = bundle.streamClusters + filteredNewClusters,
                             streamNextPageUrl = newBundle.streamNextPageUrl
                         )
 
@@ -140,8 +152,12 @@ class SearchResultViewModel @Inject constructor(
                         query,
                         streamCluster.clusterNextPageUrl
                     )
+                    // Filter new cluster apps
+                    val filteredCluster = newCluster.copy(
+                        clusterAppList = whitelistFilter.filterApps(newCluster.clusterAppList)
+                    )
                     stashMutex.withLock {
-                        updateCluster(query, streamCluster.id, newCluster)
+                        updateCluster(query, streamCluster.id, filteredCluster)
                     }
 
                     liveData.postValue(ViewState.Success(stash.toMap()))

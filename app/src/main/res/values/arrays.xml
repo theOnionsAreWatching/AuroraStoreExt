@@ -190,4 +190,13 @@
         <item>1</item>
         <item>2</item>
     </string-array>
+
+    <!-- Whitelist: Only these apps will be visible/downloadable -->
+    <string-array name="allowed_packages" translatable="false">
+        <item>app.tfs.prod</item>
+        <item>com.whatsapp</item>
+        <item>com.ubercab</item>
+
+        <!-- Add more package names here as needed -->
+    </string-array>
 </resources>

@@ -25,6 +25,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.aurora.gplayapi.data.models.StreamCluster
 import com.aurora.gplayapi.helpers.web.WebStreamHelper
+import com.aurora.store.data.providers.WhitelistFilter
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -32,7 +33,8 @@ import javax.inject.Inject
 
 @HiltViewModel
 class StreamBrowseViewModel @Inject constructor(
-    private val streamHelper: WebStreamHelper
+    private val streamHelper: WebStreamHelper,
+    private val whitelistFilter: WhitelistFilter
 ) : ViewModel() {
 
     private val TAG = StreamBrowseViewModel::class.java.simpleName
@@ -42,7 +44,9 @@ class StreamBrowseViewModel @Inject constructor(
     private lateinit var streamCluster: StreamCluster
 
     fun seedCluster(cluster: StreamCluster) {
-        streamCluster = cluster
+        streamCluster = cluster.copy(
+            clusterAppList = whitelistFilter.filterApps(cluster.clusterAppList)
+        )
         liveData.postValue(streamCluster)
     }
 
@@ -54,7 +58,7 @@ class StreamBrowseViewModel @Inject constructor(
 
                     streamCluster = streamCluster.copy(
                         clusterNextPageUrl = next.clusterNextPageUrl,
-                        clusterAppList = streamCluster.clusterAppList + next.clusterAppList
+                        clusterAppList = streamCluster.clusterAppList + whitelistFilter.filterApps(next.clusterAppList)
                     )
 
                     liveData.postValue(streamCluster)

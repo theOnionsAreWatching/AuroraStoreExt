@@ -29,6 +29,7 @@ import com.aurora.gplayapi.helpers.contracts.CategoryStreamContract
 import com.aurora.gplayapi.helpers.contracts.StreamContract
 import com.aurora.gplayapi.helpers.web.WebCategoryStreamHelper
 import com.aurora.store.data.model.ViewState
+import com.aurora.store.data.providers.WhitelistFilter
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -37,7 +38,8 @@ import javax.inject.Inject
 
 @HiltViewModel
 class CategoryStreamViewModel @Inject constructor(
-    private val webCategoryStreamHelper: WebCategoryStreamHelper
+    private val webCategoryStreamHelper: WebCategoryStreamHelper,
+    private val whitelistFilter: WhitelistFilter
 ) : ViewModel() {
 
     private val TAG = CategoryStreamViewModel::class.java.simpleName
@@ -75,9 +77,14 @@ class CategoryStreamViewModel @Inject constructor(
                             )
                         }
 
+                        // Filter new clusters to only include whitelisted apps
+                        val filteredNewClusters = newBundle.streamClusters.mapValues { (_, cluster) ->
+                            cluster.copy(clusterAppList = whitelistFilter.filterApps(cluster.clusterAppList))
+                        }
+
                         //Update old bundle
                         val mergedBundle = bundle.copy(
-                            streamClusters = bundle.streamClusters + newBundle.streamClusters,
+                            streamClusters = bundle.streamClusters + filteredNewClusters,
                             streamNextPageUrl = newBundle.streamNextPageUrl
                         )
                         stash[browseUrl] = mergedBundle
@@ -102,7 +109,11 @@ class CategoryStreamViewModel @Inject constructor(
                         val newCluster = categoryStreamContract.nextStreamCluster(
                             streamCluster.clusterNextPageUrl
                         )
-                        updateCluster(browseUrl, streamCluster.id, newCluster)
+                        // Filter new cluster apps
+                        val filteredCluster = newCluster.copy(
+                            clusterAppList = whitelistFilter.filterApps(newCluster.clusterAppList)
+                        )
+                        updateCluster(browseUrl, streamCluster.id, filteredCluster)
                         liveData.postValue(ViewState.Success(stash))
                     } else {
                         Log.i(TAG, "End of cluster")

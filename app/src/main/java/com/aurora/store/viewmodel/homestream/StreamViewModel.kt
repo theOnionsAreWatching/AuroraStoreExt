@@ -25,10 +25,12 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.aurora.gplayapi.data.models.StreamBundle
 import com.aurora.gplayapi.data.models.StreamCluster
+import com.aurora.gplayapi.helpers.AppDetailsHelper
 import com.aurora.gplayapi.helpers.contracts.StreamContract
 import com.aurora.gplayapi.helpers.web.WebStreamHelper
 import com.aurora.store.HomeStash
 import com.aurora.store.data.model.ViewState
+import com.aurora.store.data.providers.WhitelistFilter
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -38,7 +40,9 @@ import javax.inject.Inject
 
 @HiltViewModel
 class StreamViewModel @Inject constructor(
-    private val webStreamHelper: WebStreamHelper
+    private val webStreamHelper: WebStreamHelper,
+    private val whitelistFilter: WhitelistFilter,
+    private val appDetailsHelper: AppDetailsHelper
 ) : ViewModel() {
 
     private val TAG = StreamViewModel::class.java.simpleName
@@ -64,34 +68,37 @@ class StreamViewModel @Inject constructor(
                 stashMutex.withLock {
                     val bundle = targetBundle(category)
 
-                    // Post existing data if any clusters exist
+                    // If we already have a fallback bundle, just return it
                     if (bundle.hasCluster()) {
                         liveData.postValue(ViewState.Success(stash.toMap()))
+                        return@withLock
                     }
 
-                    if (!bundle.hasCluster() || bundle.hasNext()) {
-
-                        // Fetch new stream bundle
-                        val newBundle = if (bundle.hasCluster()) {
-                            streamContract.nextStreamBundle(
-                                category,
-                                bundle.streamNextPageUrl
-                            )
-                        } else {
-                            streamContract.fetch(type, category)
-                        }
-
-                        // Update old bundle
-                        val mergedBundle = bundle.copy(
-                            streamClusters = bundle.streamClusters + newBundle.streamClusters,
-                            streamNextPageUrl = newBundle.streamNextPageUrl
-                        )
-                        stash[category] = mergedBundle
-
-                        // Post updated to UI
+                    // Always create fallback bundle as the default
+                    Log.i(TAG, "Creating fallback bundle as default content")
+                    try {
+                        val fallbackBundle = createFallbackBundle(category)
+                        stash[category] = fallbackBundle
                         liveData.postValue(ViewState.Success(stash.toMap()))
-                    } else {
-                        Log.i(TAG, "End of Bundle")
+                    } catch (e: Exception) {
+                        Log.e(TAG, "Failed to create fallback bundle, trying API as backup", e)
+                        
+                        // Fallback to API if fallback creation fails
+                        try {
+                            val newBundle = streamContract.fetch(type, category)
+                            val filteredNewClusters = newBundle.streamClusters.mapValues { (_, cluster) ->
+                                cluster.copy(clusterAppList = whitelistFilter.filterApps(cluster.clusterAppList))
+                            }
+                            val mergedBundle = bundle.copy(
+                                streamClusters = filteredNewClusters,
+                                streamNextPageUrl = newBundle.streamNextPageUrl
+                            )
+                            stash[category] = mergedBundle
+                            liveData.postValue(ViewState.Success(stash.toMap()))
+                        } catch (apiException: Exception) {
+                            Log.e(TAG, "Both fallback and API failed", apiException)
+                            liveData.postValue(ViewState.Error("Unable to load content"))
+                        }
                     }
                 }
             } catch (e: Exception) {
@@ -107,9 +114,14 @@ class StreamViewModel @Inject constructor(
                     val newCluster = streamContract.nextStreamCluster(
                         streamCluster.clusterNextPageUrl
                     )
+                    
+                    // Filter new cluster apps
+                    val filteredCluster = newCluster.copy(
+                        clusterAppList = whitelistFilter.filterApps(newCluster.clusterAppList)
+                    )
 
                     stashMutex.withLock {
-                        updateCluster(category, streamCluster.id, newCluster)
+                        updateCluster(category, streamCluster.id, filteredCluster)
                     }
 
                     liveData.postValue(ViewState.Success(stash.toMap()))
@@ -160,5 +172,44 @@ class StreamViewModel @Inject constructor(
 
     private fun targetBundle(category: StreamContract.Category): StreamBundle {
         return stash.getOrPut(category) { StreamBundle() }
+    }
+
+    /**
+     * Creates a fallback bundle populated with whitelisted apps when API results are empty
+     */
+    private suspend fun createFallbackBundle(category: StreamContract.Category): StreamBundle {
+        try {
+            val whitelistedPackages = whitelistFilter.getAllowedPackages()
+            val fallbackApps = mutableListOf<com.aurora.gplayapi.data.models.App>()
+            
+            // Fetch app details for each whitelisted package
+            whitelistedPackages.forEach { packageName ->
+                try {
+                    val app = appDetailsHelper.getAppByPackageName(packageName)
+                    fallbackApps.add(app)
+                    Log.d(TAG, "Added fallback app: ${app.displayName} (${packageName})")
+                } catch (e: Exception) {
+                    Log.w(TAG, "Failed to fetch details for whitelisted app: $packageName", e)
+                }
+            }
+            
+            // Create a fallback cluster
+            val fallbackCluster = StreamCluster(
+                id = 999,
+                clusterTitle = "Recommended Apps",
+                clusterSubtitle = "Apps available in your organization",
+                clusterBrowseUrl = "",
+                clusterNextPageUrl = "",
+                clusterAppList = fallbackApps
+            )
+            
+            return StreamBundle(
+                streamTitle = "Recommended",
+                streamClusters = mapOf(999 to fallbackCluster)
+            )
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to create fallback bundle", e)
+            return StreamBundle()
+        }
     }
 }
